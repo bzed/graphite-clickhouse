@@ -1,4 +1,4 @@
-FROM devtools/go-toolset-7-rhel7
+FROM registry.access.redhat.com/devtools/go-toolset-7-rhel7
 
 WORKDIR /go/src/github.com/lomik/graphite-clickhouse
 COPY . .
@@ -13,4 +13,4 @@ RUN ./graphite-clickhouse -config-print-default | sed 's,/var/log/graphite-click
 
 CMD ["/usr/local/bin/graphite-clickhouse", "-config", "/etc/graphite-clickhouse/config"]
 
-EXPOSE 2003/udp 2003/tcp 2004/tcp 2005/tcp 2006/tcp
+EXPOSE 9090
