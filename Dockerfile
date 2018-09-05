@@ -1,18 +1,16 @@
-FROM golang:alpine as builder
+FROM devtools/go-toolset-7-rhel7
 
 WORKDIR /go/src/github.com/lomik/graphite-clickhouse
 COPY . .
 
-ENV GOPATH=/go
+RUN yum-config-manager --enable rhel-server-rhscl-7-rpms && \
+    yum-config-manager --enable rhel-7-server-optional-rpms && \
+    yum install -y golang make ca-certificates
 
-RUN go build -ldflags '-extldflags "-static"' github.com/lomik/graphite-clickhouse
+RUN make && cp graphite-clickhouse /usr/local/bin/graphite-clickhouse
+RUN mkdir -p /etc/graphite-clickhouse
+RUN ./graphite-clickhouse -config-print-default | sed 's,/var/log/graphite-clickhouse/graphite-clickhouse.log,stdout,g' > /etc/graphite-clickhouse/config
 
-FROM alpine:latest
+CMD ["/usr/local/bin/graphite-clickhouse", "-config", "/etc/graphite-clickhouse/config"]
 
-RUN apk --no-cache add ca-certificates
-WORKDIR /
-
-COPY --from=builder /go/src/github.com/lomik/graphite-clickhouse/graphite-clickhouse /usr/bin/graphite-clickhouse
-
-CMD ["graphite-clickhouse"]
-
+EXPOSE 2003/udp 2003/tcp 2004/tcp 2005/tcp 2006/tcp
