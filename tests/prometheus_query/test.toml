@@ -1,0 +1,205 @@
+# Prometheus Query End-to-End Tests
+# Tests Prometheus-style queries using Graphite render API
+
+[test]
+precision = "10s"
+
+[[test.clickhouse]]
+version = "24.2"
+dir = "tests/clickhouse/rollup"
+delay = "10s"
+
+[test.carbon_clickhouse]
+template = "carbon-clickhouse.conf.tpl"
+
+[[test.graphite_clickhouse]]
+template = "graphite-clickhouse-prometheus.conf.tpl"
+
+##########################################################################
+# Input Data - Create test metrics with Prometheus-style labels
+##########################################################################
+
+# CPU usage metrics with multiple labels
+[[test.input]]
+name = "cpu_usage_system?host=server1&instance=localhost:9100&job=node_exporter"
+points = [
+    {value = 45.2, time = "rnow-60"},
+    {value = 52.1, time = "rnow-30"},
+    {value = 38.7, time = "rnow"}
+]
+
+[[test.input]]
+name = "cpu_usage_system?host=server2&instance=localhost:9101&job=node_exporter"
+points = [
+    {value = 32.4, time = "rnow-60"},
+    {value = 41.8, time = "rnow-30"},
+    {value = 29.5, time = "rnow"}
+]
+
+# Memory usage metrics
+[[test.input]]
+name = "memory_usage?host=server1&instance=localhost:9100&job=node_exporter"
+points = [
+    {value = 72.8, time = "rnow-60"},
+    {value = 78.1, time = "rnow-30"},
+    {value = 75.3, time = "rnow"}
+]
+
+# Disk usage metrics with different job
+[[test.input]]
+name = "disk_usage?host=server1&instance=localhost:9100&job=disk_exporter&device=/dev/sda1"
+points = [
+    {value = 65.2, time = "rnow-60"},
+    {value = 68.7, time = "rnow-30"},
+    {value = 71.4, time = "rnow"}
+]
+
+##########################################################################
+# Prometheus-style Render Tests (using Graphite API)
+##########################################################################
+
+# Test basic Prometheus-style metric queries
+[[test.render_checks]]
+name = "Test Prometheus-style queries"
+from = "rnow-120"
+until = "rnow+10"
+targets = [
+    "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}",
+    "memory_usage{host=server1,instance=localhost:9100,job=node_exporter}"
+]
+
+[[test.render_checks.result]]
+name = "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}"
+path = "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 45.2, 52.1, 38.7, nan]
+
+[[test.render_checks.result]]
+name = "memory_usage{host=server1,instance=localhost:9100,job=node_exporter}"
+path = "memory_usage{host=server1,instance=localhost:9100,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 72.8, 78.1, 75.3, nan]
+
+# Test wildcard queries (similar to Prometheus label matching)
+[[test.render_checks]]
+name = "Test wildcard queries"
+from = "rnow-120"
+until = "rnow+10"
+targets = [
+    "cpu_usage_system{host=server*,instance=localhost:910*,job=node_exporter}"
+]
+
+[[test.render_checks.result]]
+name = "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}"
+path = "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 45.2, 52.1, 38.7, nan]
+
+[[test.render_checks.result]]
+name = "cpu_usage_system{host=server2,instance=localhost:9101,job=node_exporter}"
+path = "cpu_usage_system{host=server2,instance=localhost:9101,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 32.4, 41.8, 29.5, nan]
+
+# Test multiple metrics with different labels
+[[test.render_checks]]
+name = "Test multiple metrics"
+from = "rnow-120"
+until = "rnow+10"
+targets = [
+    "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}",
+    "cpu_usage_system{host=server2,instance=localhost:9101,job=node_exporter}",
+    "memory_usage{host=server1,instance=localhost:9100,job=node_exporter}"
+]
+
+[[test.render_checks.result]]
+name = "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}"
+path = "cpu_usage_system{host=server1,instance=localhost:9100,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 45.2, 52.1, 38.7, nan]
+
+[[test.render_checks.result]]
+name = "cpu_usage_system{host=server2,instance=localhost:9101,job=node_exporter}"
+path = "cpu_usage_system{host=server2,instance=localhost:9101,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 32.4, 41.8, 29.5, nan]
+
+[[test.render_checks.result]]
+name = "memory_usage{host=server1,instance=localhost:9100,job=node_exporter}"
+path = "memory_usage{host=server1,instance=localhost:9100,job=node_exporter}"
+consolidation = "avg"
+start = "rnow-120"
+stop = "rnow+20"
+step = 10
+req_start = "rnow-120"
+req_stop = "rnow+10"
+values = [nan, nan, nan, nan, nan, nan, 72.8, 78.1, 75.3, nan]
+
+# Test find API with Prometheus-style queries
+[[test.find_checks]]
+query = "cpu_usage_system"
+result = [
+    { path = "cpu_usage_system", is_leaf = false }
+]
+
+[[test.find_checks]]
+query = "cpu_usage_system{host=server1}"
+result = [
+    { path = "cpu_usage_system{host=server1}", is_leaf = false }
+]
+
+# Test tags API with Prometheus-style queries
+[[test.tags_checks]]
+query = "name"
+result = [
+    "cpu_usage_system",
+    "memory_usage",
+    "disk_usage"
+]
+
+[[test.tags_checks]]
+query = "host"
+result = [
+    "server1",
+    "server2"
+]
+
+[[test.tags_checks]]
+query = "job"
+result = [
+    "node_exporter",
+    "disk_exporter"
+]
+
+# End of Prometheus tests
+##########################################################################

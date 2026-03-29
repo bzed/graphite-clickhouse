@@ -13,6 +13,7 @@ import (
 	"text/template"
 
 	"github.com/msaf1980/go-stringutils"
+	"go.uber.org/zap"
 
 	"github.com/lomik/graphite-clickhouse/helper/client"
 )
@@ -28,9 +29,10 @@ type GraphiteClickhouse struct {
 	configFile string    `toml:"-"`
 	address    string    `toml:"-"`
 	cmd        *exec.Cmd `toml:"-"`
+	logger     *zap.Logger `toml:"-"`
 }
 
-func (c *GraphiteClickhouse) Start(testDir, chURL, chProxyURL, chTLSURL string) error {
+func (c *GraphiteClickhouse) Start(testDir, chURL, chProxyURL, chTLSURL string, logger *zap.Logger) error {
 	if c.cmd != nil {
 		return errors.New("carbon-clickhouse already started")
 	}
@@ -42,6 +44,8 @@ func (c *GraphiteClickhouse) Start(testDir, chURL, chProxyURL, chTLSURL string) 
 	if len(c.ConfigTpl) == 0 {
 		return errors.New("graphite-clickhouse config template not set")
 	}
+
+	c.logger = logger
 
 	var err error
 
@@ -171,4 +175,10 @@ func (c *GraphiteClickhouse) Cmd() string {
 func (c *GraphiteClickhouse) Grep(s string) {
 	out, _ := exec.Command("grep", "-F", s, c.storeDir+"/graphite-clickhouse.log").Output()
 	fmt.Fprintf(os.Stderr, "GREP %s", stringutils.UnsafeString(out))
+}
+
+func (c *GraphiteClickhouse) PrometheusAddr() string {
+	// Extract the address (host:port) and change port to Prometheus port (9092)
+	// Assuming graphite-clickhouse runs on the same host but different port
+	return strings.Replace(c.address, ":"+filepath.Base(c.address), ":9092", 1)
 }

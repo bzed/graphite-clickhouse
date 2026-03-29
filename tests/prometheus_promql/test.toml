@@ -1,0 +1,239 @@
+# Prometheus PromQL End-to-End Tests
+# Tests direct Prometheus API calls with PromQL queries
+
+[test]
+precision = "10s"
+
+[[test.clickhouse]]
+version = "24.2"
+dir = "tests/clickhouse/rollup"
+delay = "10s"
+
+[test.carbon_clickhouse]
+template = "carbon-clickhouse.conf.tpl"
+
+[[test.graphite_clickhouse]]
+template = "graphite-clickhouse-prometheus.conf.tpl"
+
+##########################################################################
+# Input Data - Create test metrics with Prometheus-style labels
+##########################################################################
+
+# CPU usage metrics with multiple labels
+[[test.input]]
+name = "cpu_usage_system?host=server1&instance=localhost:9100&job=node_exporter"
+points = [
+    {value = 45.2, time = "rnow-60"},
+    {value = 52.1, time = "rnow-30"},
+    {value = 38.7, time = "rnow"}
+]
+
+[[test.input]]
+name = "cpu_usage_system?host=server2&instance=localhost:9101&job=node_exporter"
+points = [
+    {value = 32.4, time = "rnow-60"},
+    {value = 41.8, time = "rnow-30"},
+    {value = 29.5, time = "rnow"}
+]
+
+# Memory usage metrics
+[[test.input]]
+name = "memory_usage?host=server1&instance=localhost:9100&job=node_exporter"
+points = [
+    {value = 72.8, time = "rnow-60"},
+    {value = 78.1, time = "rnow-30"},
+    {value = 75.3, time = "rnow"}
+]
+
+# Disk usage metrics with different job
+[[test.input]]
+name = "disk_usage?host=server1&instance=localhost:9100&job=disk_exporter&device=/dev/sda1"
+points = [
+    {value = 65.2, time = "rnow-60"},
+    {value = 68.7, time = "rnow-30"},
+    {value = 71.4, time = "rnow"}
+]
+
+##########################################################################
+# Prometheus API Tests - Direct PromQL queries
+##########################################################################
+
+# Test /api/v1/label/:name/values endpoint
+[[test.prometheus_label_values_checks]]
+name = "Test label values for host"
+label = "host"
+from = "rnow-120"
+until = "rnow+10"
+result = ["server1", "server2"]
+
+[[test.prometheus_label_values_checks]]
+name = "Test label values for job"
+label = "job"
+from = "rnow-120"
+until = "rnow+10"
+result = ["disk_exporter", "node_exporter"]
+
+# Test /api/v1/labels endpoint
+[[test.prometheus_label_names_checks]]
+name = "Test all label names"
+from = "rnow-120"
+until = "rnow+10"
+result = ["__name__", "device", "host", "instance", "job"]
+
+# Test /api/v1/series endpoint with matchers
+[[test.prometheus_series_checks]]
+name = "Test series matching by metric name"
+matchers = ["__name__=cpu_usage_system"]
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+    "cpu_usage_system{host=\"server2\",instance=\"localhost:9101\",job=\"node_exporter\"}"
+]
+
+[[test.prometheus_series_checks]]
+name = "Test series matching by multiple labels"
+matchers = ["__name__=memory_usage", "host=server1"]
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    "memory_usage{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}"
+]
+
+# Test /api/v1/query endpoint with PromQL (instant queries)
+[[test.prometheus_query_checks]]
+name = "Test simple metric query"
+query = "cpu_usage_system"
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    {
+        metric = "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        value = ["rnow", "38.7"]
+    },
+    {
+        metric = "cpu_usage_system{host=\"server2\",instance=\"localhost:9101\",job=\"node_exporter\"}",
+        value = ["rnow", "29.5"]
+    }
+]
+
+[[test.prometheus_query_checks]]
+name = "Test label matching query"
+query = "memory_usage{host=\"server1\"}"
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    {
+        metric = "memory_usage{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        value = ["rnow", "75.3"]
+    }
+]
+
+[[test.prometheus_query_checks]]
+name = "Test regex matching query"
+query = "cpu_usage_system{job=~\"node_.*\"}"
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    {
+        metric = "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        value = ["rnow", "38.7"]
+    },
+    {
+        metric = "cpu_usage_system{host=\"server2\",instance=\"localhost:9101\",job=\"node_exporter\"}",
+        value = ["rnow", "29.5"]
+    }
+]
+
+[[test.prometheus_query_checks]]
+name = "Test negative matching query"
+query = "cpu_usage_system{host!=\"server2\"}"
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    {
+        metric = "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        value = ["rnow", "38.7"]
+    }
+]
+
+# Test /api/v1/query_range endpoint with PromQL (range queries)
+[[test.prometheus_query_range_checks]]
+name = "Test range query with 30s step"
+query = "cpu_usage_system"
+from = "rnow-60"
+until = "rnow+10"
+step = "30s"
+result = [
+    {
+        metric = "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        values = ["rnow-60", "45.2", "rnow-30", "52.1", "rnow", "38.7"]
+    },
+    {
+        metric = "cpu_usage_system{host=\"server2\",instance=\"localhost:9101\",job=\"node_exporter\"}",
+        values = ["rnow-60", "32.4", "rnow-30", "41.8", "rnow", "29.5"]
+    }
+]
+
+[[test.prometheus_query_range_checks]]
+name = "Test range query with label filtering"
+query = "memory_usage{host=\"server1\"}"
+from = "rnow-60"
+until = "rnow+10"
+step = "30s"
+result = [
+    {
+        metric = "memory_usage{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        values = ["rnow-60", "72.8", "rnow-30", "78.1", "rnow", "75.3"]
+    }
+]
+
+[[test.prometheus_query_range_checks]]
+name = "Test range query with regex matching"
+query = "cpu_usage_system{job=~\"node_.*\"}"
+from = "rnow-60"
+until = "rnow+10"
+step = "30s"
+result = [
+    {
+        metric = "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        values = ["rnow-60", "45.2", "rnow-30", "52.1", "rnow", "38.7"]
+    },
+    {
+        metric = "cpu_usage_system{host=\"server2\",instance=\"localhost:9101\",job=\"node_exporter\"}",
+        values = ["rnow-60", "32.4", "rnow-30", "41.8", "rnow", "29.5"]
+    }
+]
+
+# Test arithmetic operations
+[[test.prometheus_query_checks]]
+name = "Test arithmetic operation - addition"
+query = "cpu_usage_system + 10"
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    {
+        metric = "cpu_usage_system{host=\"server1\",instance=\"localhost:9100\",job=\"node_exporter\"}",
+        value = ["rnow", "48.7"]
+    },
+    {
+        metric = "cpu_usage_system{host=\"server2\",instance=\"localhost:9101\",job=\"node_exporter\"}",
+        value = ["rnow", "39.5"]
+    }
+]
+
+# Test aggregation functions
+[[test.prometheus_query_checks]]
+name = "Test sum aggregation"
+query = "sum(cpu_usage_system) by (job)"
+from = "rnow-120"
+until = "rnow+10"
+result = [
+    {
+        metric = "cpu_usage_system{job=\"node_exporter\"}",
+        value = ["rnow", "68.2"]
+    }
+]
+
+# End of Prometheus PromQL tests
+##########################################################################
